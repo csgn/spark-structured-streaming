@@ -1,13 +1,49 @@
 import sys
 import socket
-import uuid
+import random
+import time
 
-from typing import AnyStr, List
 from confluent_kafka import Producer
+from concurrent.futures import ThreadPoolExecutor
+from faker import Faker
+
+faker = Faker()
+KAFKA_TOPIC = sys.argv[1]
 
 
-def main(args: List[AnyStr]) -> None:
-    topic = args[1]
+def generate_log():
+    ip = faker.ipv4()
+    method = faker.http_method()
+    url = faker.url()
+    status = faker.http_status_code()
+    size = faker.random_int(200, 5000)
+    referer = faker.url()
+    user_agent = faker.user_agent()
+    now = faker.date_time_this_decade()
+
+    log_entry = f'{ip} - - [{now}] "{method} {url} HTTP/1.1" {status} {size} "{referer}" "{user_agent}"'
+    encoded_log = log_entry.encode("utf-8")
+
+    return encoded_log
+
+
+def worker(producer):
+    while True:
+        delay = random.uniform(0.005, 0.025)
+        data = generate_log()
+
+        print("SEND", data)
+
+        try:
+            producer.produce(KAFKA_TOPIC, value=data)
+            producer.flush()
+        except Exception as e:
+            print(e)
+
+        time.sleep(delay)
+
+
+def main():
     conf = {
         "bootstrap.servers": "localhost:9092",
         "client.id": socket.gethostname(),
@@ -15,17 +51,10 @@ def main(args: List[AnyStr]) -> None:
 
     producer = Producer(conf)
 
-    with open("mock_data/apache_mock_logs.txt", "r") as logs:
-        log_lines = logs.readlines()
-
-        for log_line in log_lines:
-            key = str(uuid.uuid4()).encode("utf-8")
-            log_as_bytes = log_line.encode("utf-8")
-
-            producer.produce(topic, key=key, value=log_as_bytes)
-
-    producer.flush()
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for _ in range(5):
+            executor.submit(worker, producer)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(main())

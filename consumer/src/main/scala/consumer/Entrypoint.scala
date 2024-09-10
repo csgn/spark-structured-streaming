@@ -29,10 +29,21 @@ object Entrypoint extends App {
     /////////////////////////////
     // • Data Transformation  //
     ///////////////////////////
-    val resultDF = streamDF
-      .selectExpr(
-        "cast(value as string) as log"
+
+    val logRegex =
+      raw"""(\S+) (\S+) (\S+) \[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6})\] (\S+) (\S+) (\S+) (\S+) (\S+)""".r
+
+    val extractedDF = streamDF
+      .withColumn("value", regexp_extract(col("value"), logRegex.toString, 4))
+      .withColumn(
+        "date",
+        to_timestamp(col("value"), "yyyy-MM-dd HH:mm:ss.SSSSSS")
       )
+
+    val resultDF = extractedDF
+      .withColumn("day", date_format(col("date"), "yyyy-MM-dd"))
+      .groupBy("day")
+      .count()
 
     ///////////////////////
     // • Output Sink    //
